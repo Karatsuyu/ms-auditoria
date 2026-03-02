@@ -11,6 +11,26 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.section import WD_ORIENT
 import os
 
+IMAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def add_image(doc, filename, width_inches=6.5):
+    """Inserta una imagen centrada si existe el archivo."""
+    path = os.path.join(IMAGE_DIR, filename)
+    if os.path.exists(path):
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run()
+        run.add_picture(path, width=Inches(width_inches))
+        caption = doc.add_paragraph()
+        caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r = caption.add_run(f"Figura: {filename.replace('.png','').replace('_',' ').title()}")
+        r.font.size = Pt(8)
+        r.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+        r.italic = True
+        doc.add_paragraph()
+    else:
+        print(f"  ⚠️ Imagen no encontrada: {path}")
+
 def add_heading_styled(doc, text, level=1):
     heading = doc.add_heading(text, level=level)
     for run in heading.runs:
@@ -160,6 +180,9 @@ def generate_docx():
     # 1.2 Diagrama visual
     add_heading_styled(doc, "1.2 Diagrama de Casos de Uso", 2)
 
+    # Imagen generada
+    add_image(doc, "diagrama_1_casos_de_uso.png", 9.0)
+
     cu_diagram = """
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                          ms-auditoria (Sistema)                         ║
@@ -232,6 +255,9 @@ ACTORES:
     add_heading_styled(doc, "2. Diagrama de Clases UML", 1)
 
     add_heading_styled(doc, "2.1 Diagrama Completo", 2)
+
+    # Imagen generada
+    add_image(doc, "diagrama_2_clases_uml.png", 9.5)
 
     classes_diagram = """
 ╔═══════════════════════ CAPA DE PRESENTACIÓN ════════════════════════╗
@@ -396,6 +422,9 @@ ACTORES:
 
     # 3.1 Crear Log
     add_heading_styled(doc, "3.1 Secuencia: Crear Log de Auditoría (POST /api/v1/audit/log)", 2)
+
+    # Imagen generada
+    add_image(doc, "diagrama_3_secuencia_crear_log.png", 9.5)
 
     seq1 = """
   Microservicio    RequestID MW    RateLimit MW    audit_routes    verify_api_key    AuditService    AuditRepo
@@ -659,6 +688,9 @@ ACTORES:
 
     add_heading_styled(doc, "4.1 Diagrama de Componentes (Clean Architecture)", 2)
 
+    # Imagen generada
+    add_image(doc, "diagrama_4_componentes.png", 9.0)
+
     comp_diagram = """
 ╔═════════════════════════════════════════════════════════════════════════════╗
 ║                        ms-auditoria (:8019)                               ║
@@ -777,6 +809,9 @@ ACTORES:
     add_heading_styled(doc, "5. Diagrama Entidad-Relación (ER)", 1)
 
     add_heading_styled(doc, "5.1 Diagrama ER Completo", 2)
+
+    # Imagen generada
+    add_image(doc, "diagrama_5_entidad_relacion.png", 9.5)
 
     er_diagram = """
 ╔═══════════════════════════════════════════════════════════════════════════════╗
@@ -920,9 +955,15 @@ ACTORES:
     # GUARDAR
     # ══════════════════════════════════════════════════════════════
     output_path = os.path.join(os.path.dirname(__file__), "Diagramas_UML_ms_auditoria.docx")
-    doc.save(output_path)
+    # Si el archivo está bloqueado, guardar con sufijo _v2
+    try:
+        doc.save(output_path)
+    except PermissionError:
+        output_path = os.path.join(os.path.dirname(__file__), "Diagramas_UML_ms_auditoria_v2.docx")
+        doc.save(output_path)
+        print(f"  ⚠️ Archivo original bloqueado, guardado como _v2")
     print(f"✅ Documento generado: {output_path}")
-    print(f"   Secciones: 5 diagramas UML")
+    print(f"   Secciones: 5 diagramas UML + 5 imágenes PNG")
     print(f"   Formato: Word (.docx), Landscape A4")
 
 
