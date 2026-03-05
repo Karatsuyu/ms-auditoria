@@ -30,6 +30,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
@@ -192,13 +193,13 @@ async def receive_log_batch(
 # =============================================================================
 
 @log_router.get(
-    "/trace/{trace_request_id}",
+    "/trace/{request_id}",
     response_model=APIResponse[TraceData],
     summary="Consultar traza completa por Request ID",
     description="Retorna todos los logs de un request_id ordenados cronológicamente.",
 )
 async def get_trace(
-    trace_request_id: str,
+    request_id: str,
     request: Request,
     page: int = Query(..., ge=1, description="Página (obligatorio)"),
     page_size: int = Query(..., ge=1, le=100, description="Registros por página (obligatorio)"),
@@ -206,11 +207,12 @@ async def get_trace(
     _user: dict = Depends(require_permission("AUD_CONSULTAR_LOGS")),
 ):
     start = time.perf_counter()
-    request_id = _rid(request)
+    trace_rid = request_id  # capture path param (the trace target)
+    request_id = _rid(request)  # middleware-generated request id for this call
 
     service = AuditService(db)
     records, total = await service.get_trace(
-        request_id=trace_request_id,
+        request_id=trace_rid,
         page=page,
         page_size=page_size,
     )
@@ -224,14 +226,14 @@ async def get_trace(
         codigo_respuesta=200,
         duracion_ms=duration,
         usuario_id=_user.get("user_id") or _user.get("data", {}).get("user_id"),
-        detalle=f"Traza consultada para request_id={trace_request_id}. {total} registros.",
+        detalle=f"Traza consultada para request_id={trace_rid}. {total} registros.",
     )
 
     return APIResponse(
         request_id=request_id,
         success=True,
         data=TraceData(
-            trace_request_id=trace_request_id,
+            trace_request_id=trace_rid,
             total_records=total,
             page=page,
             page_size=page_size,
@@ -490,6 +492,13 @@ async def get_rotation_history(
         usuario_id=_user.get("user_id") or _user.get("data", {}).get("user_id"),
     )
 
+    def _build_history_record(r) -> RotationHistoryRecord:
+        rec = RotationHistoryRecord.model_validate(r)
+        # Derive trigger type from detalle: manual rotations include user info
+        detalle = getattr(r, "detalle", "") or ""
+        rec.trigger = "manual" if "manual" in detalle.lower() else "automatico"
+        return rec
+
     return APIResponse(
         request_id=request_id,
         success=True,
@@ -497,7 +506,7 @@ async def get_rotation_history(
             total_records=total,
             page=page,
             page_size=page_size,
-            records=[RotationHistoryRecord.model_validate(r) for r in records],
+            records=[_build_history_record(r) for r in records],
         ),
         message="Historial de rotaciones recuperado exitosamente.",
     )
@@ -661,13 +670,16 @@ async def health_check(db: AsyncSession = Depends(get_db)):
             timestamp=ts,
         )
     except Exception as e:
-        return HealthResponse(
-            status="unhealthy",
-            components={
-                "database": {
-                    "status": "unhealthy",
-                    "error": str(e),
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=HealthResponse(
+                status="unhealthy",
+                components={
+                    "database": {
+                        "status": "unhealthy",
+                        "error": str(e),
+                    },
                 },
-            },
-            timestamp=ts,
+                timestamp=ts,
+            ).model_dump(mode="json"),
         )

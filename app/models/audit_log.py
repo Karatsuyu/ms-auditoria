@@ -17,6 +17,7 @@ from sqlalchemy import (
     TIMESTAMP,
     Index,
     CheckConstraint,
+    text,
 )
 
 from app.database.base import Base
@@ -104,7 +105,11 @@ class AuditLog(Base):
         Index("idx_aud_eventos_fecha_hora", "fecha_hora"),
         Index("idx_aud_eventos_microservicio_fecha", "microservicio", "fecha_hora"),
         Index("idx_aud_eventos_codigo_respuesta", "codigo_respuesta"),
-        Index("idx_aud_eventos_usuario_id", "usuario_id"),
+        Index(
+            "idx_aud_eventos_usuario_id",
+            "usuario_id",
+            postgresql_where=text("usuario_id IS NOT NULL"),
+        ),
         CheckConstraint(
             "metodo IN ('GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS')",
             name="chk_aud_eventos_metodo",

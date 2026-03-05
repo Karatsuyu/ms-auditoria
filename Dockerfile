@@ -60,7 +60,7 @@ EXPOSE 8019
 
 # Health check integrado
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8019/api/v1/audit/health || exit 1
+    CMD curl -f http://localhost:8019/api/v1/health || exit 1
 
 # Comando de ejecución: Alembic upgrade + Uvicorn
 CMD ["sh", "-c", "python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8019 --workers 4 --loop uvloop --http httptools"]

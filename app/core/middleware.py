@@ -8,6 +8,7 @@
 # - Logging estructurado de cada petición
 # =============================================================================
 
+import re
 import time
 import string
 import random
@@ -16,6 +17,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
 
 from app.utils.logger import logger
+
+# Regex para validar formato de Request ID recibido
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9\-]{1,36}$")
 
 
 def generate_request_id() -> str:
@@ -38,7 +42,16 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # ── Obtener o generar Request-ID ──────────────────────────────────
-        request_id = request.headers.get("X-Request-ID") or generate_request_id()
+        incoming_rid = request.headers.get("X-Request-ID")
+        if incoming_rid and _REQUEST_ID_RE.match(incoming_rid):
+            request_id = incoming_rid
+        else:
+            if incoming_rid:
+                logger.warning(
+                    "invalid_request_id_format",
+                    extra={"received": incoming_rid[:50]},
+                )
+            request_id = generate_request_id()
 
         # Inyectar en el state del request para uso posterior
         request.state.request_id = request_id

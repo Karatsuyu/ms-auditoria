@@ -28,6 +28,14 @@ from app.utils.logger import logger
 _TIMEOUT = httpx.Timeout(3.0, connect=3.0)
 
 
+class ExternalServiceUnavailable(Exception):
+    """Raised when ms-autenticacion or ms-roles is unreachable/times out."""
+    def __init__(self, service_name: str, detail: str):
+        self.service_name = service_name
+        self.detail = detail
+        super().__init__(detail)
+
+
 async def validate_session(
     token: str,
     request_id: str = "",
@@ -79,13 +87,19 @@ async def validate_session(
             "auth_service_timeout",
             extra={"request_id": request_id, "timeout_seconds": 3},
         )
-        return None
+        raise ExternalServiceUnavailable(
+            service_name="ms-autenticacion",
+            detail="Servicio de autenticación no disponible.",
+        )
     except httpx.RequestError as exc:
         logger.error(
             "auth_service_unavailable",
             extra={"error": str(exc), "request_id": request_id},
         )
-        return None
+        raise ExternalServiceUnavailable(
+            service_name="ms-autenticacion",
+            detail="Servicio de autenticación no disponible.",
+        )
 
 
 async def check_permission(
@@ -149,10 +163,16 @@ async def check_permission(
             "roles_service_timeout",
             extra={"request_id": request_id, "timeout_seconds": 3},
         )
-        return False
+        raise ExternalServiceUnavailable(
+            service_name="ms-roles",
+            detail="Servicio de roles no disponible.",
+        )
     except httpx.RequestError as exc:
         logger.error(
             "roles_service_unavailable",
             extra={"error": str(exc), "request_id": request_id},
         )
-        return False
+        raise ExternalServiceUnavailable(
+            service_name="ms-roles",
+            detail="Servicio de roles no disponible.",
+        )

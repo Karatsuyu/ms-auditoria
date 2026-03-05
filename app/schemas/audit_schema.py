@@ -148,10 +148,11 @@ class BatchReceivedData(BaseModel):
 class RotationHistoryRecord(BaseModel):
     """Un registro del historial de rotaciones."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
     timestamp: datetime = Field(alias="fecha_hora")
+    trigger: str = Field(default="manual")
     functionality: str = Field(alias="funcionalidad")
     method: str = Field(alias="metodo")
     response_code: int = Field(alias="codigo_respuesta")

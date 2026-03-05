@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import AsyncSessionLocal
 from app.database.unit_of_work import UnitOfWork
-from app.services.auth_service import validate_session, check_permission
+from app.services.auth_service import (
+    validate_session,
+    check_permission,
+    ExternalServiceUnavailable,
+)
 from app.core.config import settings
 
 
@@ -63,7 +67,13 @@ async def get_current_user(
             "_session_token": token,
         }
 
-    user_data = await validate_session(token, request_id=request_id)
+    try:
+        user_data = await validate_session(token, request_id=request_id)
+    except ExternalServiceUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.detail,
+        )
     if user_data is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -91,11 +101,17 @@ def require_permission(permission_code: str) -> Callable:
         request_id = getattr(request.state, "request_id", "")
         user_id = user.get("user_id") or user.get("data", {}).get("user_id")
 
-        has_perm = await check_permission(
-            user_id=user_id,
-            functionality_code=permission_code,
-            request_id=request_id,
-        )
+        try:
+            has_perm = await check_permission(
+                user_id=user_id,
+                functionality_code=permission_code,
+                request_id=request_id,
+            )
+        except ExternalServiceUnavailable as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=exc.detail,
+            )
         if not has_perm:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
