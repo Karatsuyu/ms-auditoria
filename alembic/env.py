@@ -21,7 +21,7 @@ if config.config_file_name is not None:
 # ── Configuración de modelos y URL de BD ──────────────────────────────────────
 from app.core.config import settings  # noqa: E402
 from app.database.base import Base  # noqa: E402
-from app.models import AuditLog, MicroserviceToken  # noqa: E402, F401
+from app.models import AuditLog, MicroserviceToken, RetentionConfig, ServiceStatistics  # noqa: E402, F401
 
 # Establecer URL de conexión SYNC desde .env (Alembic usa driver sync)
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

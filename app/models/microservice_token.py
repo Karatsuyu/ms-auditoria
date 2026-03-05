@@ -5,13 +5,11 @@
 # Cada microservicio autorizado tiene un token registrado para enviar logs.
 # =============================================================================
 
-import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, Boolean, TIMESTAMP
+from sqlalchemy import Column, Integer, String, Boolean, TIMESTAMP
 
 from app.database.base import Base
-from app.models.audit_log import GUID
 
 
 class MicroserviceToken(Base):
@@ -23,9 +21,9 @@ class MicroserviceToken(Base):
     __tablename__ = "microservice_tokens"
 
     id = Column(
-        GUID(),
+        Integer,
         primary_key=True,
-        default=uuid.uuid4,
+        autoincrement=True,
     )
     nombre_microservicio = Column(
         String(50),

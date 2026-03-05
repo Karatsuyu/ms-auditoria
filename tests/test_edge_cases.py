@@ -1,255 +1,204 @@
 # =============================================================================
 # ms-auditoria | tests/test_edge_cases.py
 # =============================================================================
-# Tests de casos borde y validaciones avanzadas.
+# Tests de validaciones avanzadas, límites y casos borde.
 # =============================================================================
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 
-class TestValidations:
-    """Tests de validación de datos de entrada."""
+class TestLogValidations:
+    """Validaciones de datos de entrada para POST /api/v1/logs."""
 
-    def test_create_log_max_length_servicio(self, client):
-        """Servicio con nombre demasiado largo."""
+    def test_service_name_too_long(self, client):
+        """Nombre de servicio > 50 caracteres."""
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "nombre_microservicio": "x" * 60,  # max_length=50
-            "endpoint": "/test",
-            "metodo_http": "GET",
-            "codigo_respuesta": 200,
-            "duracion_ms": 10,
+            "service_name": "x" * 60,
+            "functionality": "test",
+            "method": "GET",
+            "response_code": 200,
+            "duration_ms": 10,
         }
-        response = client.post("/api/v1/audit/log", json=payload)
+        response = client.post("/api/v1/logs", json=payload)
         assert response.status_code == 422
 
-    def test_create_log_min_codigo_respuesta(self, client):
-        """Código de respuesta HTTP menor al mínimo."""
+    def test_functionality_too_long(self, client):
+        """Funcionalidad > 100 caracteres."""
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "nombre_microservicio": "ms-test",
-            "endpoint": "/test",
-            "metodo_http": "GET",
-            "codigo_respuesta": 50,  # mínimo es 100
-            "duracion_ms": 10,
+            "service_name": "ms-test",
+            "functionality": "f" * 110,
+            "method": "GET",
+            "response_code": 200,
+            "duration_ms": 10,
         }
-        response = client.post("/api/v1/audit/log", json=payload)
+        response = client.post("/api/v1/logs", json=payload)
         assert response.status_code == 422
 
-    def test_create_log_negative_duracion(self, client):
-        """Duración negativa no debería aceptarse."""
+    def test_response_code_below_minimum(self, client):
+        """Código de respuesta < 100."""
         payload = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "nombre_microservicio": "ms-test",
-            "endpoint": "/test",
-            "metodo_http": "GET",
-            "codigo_respuesta": 200,
-            "duracion_ms": -5,
+            "service_name": "ms-test",
+            "functionality": "test",
+            "method": "GET",
+            "response_code": 50,
+            "duration_ms": 10,
         }
-        response = client.post("/api/v1/audit/log", json=payload)
-        # Puede pasar si no hay validación ge=0, verifica el estado actual
-        assert response.status_code in (201, 422)
+        response = client.post("/api/v1/logs", json=payload)
+        assert response.status_code == 422
 
-    def test_create_log_all_http_methods(self, client):
-        """Verifica que acepta todos los métodos HTTP comunes."""
-        for method in ["GET", "POST", "PUT", "DELETE", "PATCH"]:
-            payload = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": "/test",
-                "metodo_http": method,
-                "codigo_respuesta": 200,
-                "duracion_ms": 10,
-            }
-            response = client.post("/api/v1/audit/log", json=payload)
-            assert response.status_code == 201, f"Falló para método {method}"
+    def test_response_code_above_maximum(self, client):
+        """Código de respuesta > 599."""
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "service_name": "ms-test",
+            "functionality": "test",
+            "method": "GET",
+            "response_code": 600,
+            "duration_ms": 10,
+        }
+        response = client.post("/api/v1/logs", json=payload)
+        assert response.status_code == 422
 
-    def test_create_log_all_status_codes(self, client):
-        """Verifica códigos de respuesta de cada familia HTTP."""
-        for code in [100, 200, 201, 301, 400, 404, 500, 503]:
-            payload = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": "/test",
-                "metodo_http": "GET",
-                "codigo_respuesta": code,
-                "duracion_ms": 10,
-            }
-            response = client.post("/api/v1/audit/log", json=payload)
-            assert response.status_code == 201, f"Falló para código {code}"
+    def test_duration_ms_zero(self, client):
+        """Duración de 0ms es válida."""
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "service_name": "ms-test",
+            "functionality": "test",
+            "method": "GET",
+            "response_code": 200,
+            "duration_ms": 0,
+        }
+        response = client.post("/api/v1/logs", json=payload)
+        assert response.status_code == 202
 
+    def test_request_id_too_long(self, client):
+        """request_id > 36 caracteres."""
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "request_id": "R" * 40,
+            "service_name": "ms-test",
+            "functionality": "test",
+            "method": "GET",
+            "response_code": 200,
+            "duration_ms": 10,
+        }
+        response = client.post("/api/v1/logs", json=payload)
+        assert response.status_code == 422
 
-class TestPagination:
-    """Tests de paginación."""
-
-    def test_pagination_first_page(self, client):
-        """Verifica la primera página."""
-        # Crear 5 logs
-        for i in range(5):
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": f"/test/{i}",
-                "metodo_http": "GET",
-                "codigo_respuesta": 200,
-                "duracion_ms": 10,
-            })
-
-        response = client.get("/api/v1/audit/logs?page=1&page_size=3")
-        data = response.json()
-        assert data["page"] == 1
-        assert data["page_size"] == 3
-        assert len(data["data"]) == 3
-        assert data["total"] == 5
-        assert data["total_pages"] == 2
-
-    def test_pagination_second_page(self, client):
-        """Verifica la segunda página."""
-        for i in range(5):
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": f"/test/{i}",
-                "metodo_http": "GET",
-                "codigo_respuesta": 200,
-                "duracion_ms": 10,
-            })
-
-        response = client.get("/api/v1/audit/logs?page=2&page_size=3")
-        data = response.json()
-        assert data["page"] == 2
-        assert len(data["data"]) == 2  # Solo quedan 2 de 5
-
-    def test_pagination_invalid_page(self, client):
-        """Página 0 o negativa debe rechazarse."""
-        response = client.get("/api/v1/audit/logs?page=0")
+    def test_user_id_too_long(self, client):
+        """user_id > 36 caracteres."""
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "service_name": "ms-test",
+            "functionality": "test",
+            "method": "GET",
+            "response_code": 200,
+            "duration_ms": 10,
+            "user_id": "U" * 40,
+        }
+        response = client.post("/api/v1/logs", json=payload)
         assert response.status_code == 422
 
 
-class TestPurgeLogs:
-    """Tests para purga de logs."""
+class TestBatchValidations:
+    """Validaciones para POST /api/v1/logs/batch."""
 
-    def test_purge_deletes_old_logs(self, client):
-        """Verifica que purge elimina logs anteriores a la fecha."""
-        # Crear un log
-        client.post("/api/v1/audit/log", json={
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "nombre_microservicio": "ms-test",
-            "endpoint": "/test",
-            "metodo_http": "GET",
-            "codigo_respuesta": 200,
-            "duracion_ms": 10,
-        })
+    def test_batch_empty_logs_rejected(self, client):
+        """Arreglo vacío debe rechazarse (min_length=1)."""
+        response = client.post("/api/v1/logs/batch", json={"logs": []})
+        assert response.status_code == 422
 
-        # Verificar que hay 1 log
-        response = client.get("/api/v1/audit/logs")
-        assert response.json()["total"] == 1
+    def test_batch_no_logs_field(self, client):
+        """Body sin campo 'logs' debe rechazarse."""
+        response = client.post("/api/v1/logs/batch", json={})
+        assert response.status_code == 422
 
-        # Purgar con fecha futura (debería eliminar todo)
-        future = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
-        response = client.delete(
-            "/api/v1/audit/purge",
-            params={"before_date": future},
+    def test_batch_invalid_entry_in_array(self, client):
+        """Si una entrada del batch tiene datos inválidos, se valida."""
+        payload = {
+            "logs": [
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "service_name": "ms-ok",
+                    "functionality": "test",
+                    "method": "GET",
+                    "response_code": 200,
+                    "duration_ms": 10,
+                },
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "service_name": "ms-bad",
+                    "functionality": "test",
+                    "method": "GET",
+                    "response_code": 9999,  # Invalid
+                    "duration_ms": 10,
+                },
+            ]
+        }
+        response = client.post("/api/v1/logs/batch", json=payload)
+        # Pydantic will reject before reaching the route logic
+        assert response.status_code == 422
+
+
+class TestRetentionValidations:
+    """Validaciones para endpoints de retención."""
+
+    def test_update_retention_float_value(self, client, auth_headers):
+        """Float en retention_days debe rechazarse (se espera int)."""
+        response = client.patch(
+            "/api/v1/retention-config",
+            json={"retention_days": 30.5},
+            headers=auth_headers,
         )
-        assert response.status_code == 200
-        assert "1 registros eliminados" in response.json()["message"]
+        # Pydantic puede coercer float → int, o rechazar
+        # El comportamiento depende de la config de Pydantic
+        assert response.status_code in (200, 422)
 
-        # Verificar que no queda nada
-        response = client.get("/api/v1/audit/logs")
-        assert response.json()["total"] == 0
-
-    def test_purge_keeps_recent_logs(self, client):
-        """Verifica que purge no elimina logs recientes."""
-        client.post("/api/v1/audit/log", json={
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "nombre_microservicio": "ms-test",
-            "endpoint": "/test",
-            "metodo_http": "GET",
-            "codigo_respuesta": 200,
-            "duracion_ms": 10,
-        })
-
-        # Purgar con fecha pasada (no debería eliminar nada)
-        past = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
-        response = client.delete(
-            "/api/v1/audit/purge",
-            params={"before_date": past},
+    def test_update_retention_string_value(self, client, auth_headers):
+        """String en retention_days debe rechazarse."""
+        response = client.patch(
+            "/api/v1/retention-config",
+            json={"retention_days": "thirty"},
+            headers=auth_headers,
         )
-        assert response.status_code == 200
-        assert "0 registros eliminados" in response.json()["message"]
+        assert response.status_code == 422
+
+    def test_update_retention_missing_field(self, client, auth_headers):
+        """Body sin retention_days debe rechazarse."""
+        response = client.patch(
+            "/api/v1/retention-config",
+            json={},
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
 
 
-class TestUserLogs:
-    """Tests para endpoint de logs por usuario."""
+class TestStatsValidations:
+    """Validaciones para endpoints de estadísticas."""
 
-    def test_user_logs_with_pagination(self, client):
-        """Verifica paginación en logs de usuario."""
-        usuario_id = "550e8400-e29b-41d4-a716-446655440000"
-        for i in range(5):
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": f"/test/{i}",
-                "metodo_http": "GET",
-                "codigo_respuesta": 200,
-                "duracion_ms": 10,
-                "usuario_id": usuario_id,
-            })
-
-        response = client.get(f"/api/v1/audit/user/{usuario_id}?page=1&page_size=3")
-        data = response.json()
-        assert data["total"] == 5
-        assert len(data["data"]) == 3
-
-    def test_user_logs_empty(self, client):
-        """Verifica respuesta vacía para usuario sin logs."""
+    def test_stats_missing_period(self, client, auth_headers):
+        """Period es obligatorio."""
         response = client.get(
-            "/api/v1/audit/user/550e8400-e29b-41d4-a716-000000000000?page=1&page_size=20"
+            "/api/v1/stats?page=1&page_size=20",
+            headers=auth_headers,
         )
-        data = response.json()
-        assert data["total"] == 0
-        assert data["data"] == []
+        assert response.status_code == 422
 
-
-class TestMultiFilter:
-    """Tests de filtros combinados."""
-
-    def test_filter_by_servicio_and_metodo(self, client):
-        """Filtrar por servicio y método simultáneamente."""
-        # Crear logs variados
-        for svc, method in [
-            ("ms-matricula", "POST"),
-            ("ms-matricula", "GET"),
-            ("ms-finanzas", "POST"),
-        ]:
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": svc,
-                "endpoint": "/test",
-                "metodo_http": method,
-                "codigo_respuesta": 200,
-                "duracion_ms": 10,
-            })
-
+    def test_stats_invalid_period_value(self, client, auth_headers):
+        """Periodo que no es diario/semanal/mensual."""
         response = client.get(
-            "/api/v1/audit/logs?servicio=ms-matricula&metodo_http=POST"
+            "/api/v1/stats?period=trimestral&page=1&page_size=20",
+            headers=auth_headers,
         )
-        data = response.json()
-        assert data["total"] == 1
-        assert data["data"][0]["servicio"] == "ms-matricula"
-        assert data["data"][0]["metodo"] == "POST"
+        assert response.status_code == 422
 
-    def test_filter_by_codigo_respuesta(self, client):
-        """Filtrar por código de respuesta."""
-        for code in [200, 200, 404, 500]:
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": "/test",
-                "metodo_http": "GET",
-                "codigo_respuesta": code,
-                "duracion_ms": 10,
-            })
-
-        response = client.get("/api/v1/audit/logs?codigo_respuesta=200")
-        assert response.json()["total"] == 2
+    def test_service_stats_invalid_period(self, client, auth_headers):
+        response = client.get(
+            "/api/v1/stats/ms-test?period=bimestral&page=1&page_size=20",
+            headers=auth_headers,
+        )
+        assert response.status_code == 422

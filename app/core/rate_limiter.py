@@ -26,7 +26,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths excluidos del rate limiting
-    EXCLUDED_PATHS = {"/api/v1/audit/health", "/docs", "/redoc", "/openapi.json", "/"}
+    EXCLUDED_PATHS = {"/api/v1/health", "/docs", "/redoc", "/openapi.json", "/"}
 
     def __init__(self, app, max_requests: int = 0, window_seconds: int = 0):
         super().__init__(app)

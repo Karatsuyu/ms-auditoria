@@ -2,8 +2,10 @@
 # ms-auditoria | core/exception_handlers.py
 # =============================================================================
 # Manejadores globales de excepciones para estandarizar respuestas de error.
-# Captura errores 500, validación, y HTTPException de forma uniforme.
+# Todas las respuestas incluyen request_id, success, data, message, timestamp.
 # =============================================================================
+
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -11,6 +13,11 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.utils.logger import logger
+
+
+def _get_request_id(request: Request) -> str:
+    """Obtiene el request_id del state del request (inyectado por middleware)."""
+    return getattr(request.state, "request_id", "unknown")
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -31,38 +38,43 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={
+                "request_id": _get_request_id(request),
                 "success": False,
-                "error": _status_phrase(exc.status_code),
-                "detail": str(exc.detail),
+                "data": None,
+                "message": str(exc.detail),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """Maneja errores de validación de Pydantic (422)."""
-        errors = []
+        invalid_fields = []
+        detail_parts = []
         for error in exc.errors():
             field = " → ".join(str(loc) for loc in error["loc"])
-            errors.append({
-                "field": field,
-                "message": error["msg"],
-                "type": error["type"],
-            })
+            invalid_fields.append(field)
+            detail_parts.append(f"{field}: {error['msg']}")
 
         logger.warning(
             "validation_error",
             extra={
                 "path": request.url.path,
                 "method": request.method,
-                "error_count": len(errors),
+                "error_count": len(invalid_fields),
             },
         )
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
+                "request_id": _get_request_id(request),
                 "success": False,
-                "error": "Error de validación",
-                "detail": errors,
+                "data": {
+                    "invalid_fields": invalid_fields,
+                    "detail": "; ".join(detail_parts),
+                },
+                "message": "El cuerpo del log no cumple el formato requerido.",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
 
@@ -82,11 +94,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
+                "request_id": _get_request_id(request),
                 "success": False,
-                "error": "Error interno del servidor",
-                "detail": "Ha ocurrido un error inesperado. Contacte al administrador."
+                "data": None,
+                "message": "Error interno del servidor. Contacte al administrador."
                 if not _is_debug()
                 else str(exc),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
 

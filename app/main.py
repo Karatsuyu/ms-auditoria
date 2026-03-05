@@ -14,14 +14,20 @@ from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
 from app.core.rate_limiter import RateLimitMiddleware
 from app.core.exception_handlers import register_exception_handlers
-from app.routes.audit_routes import router as audit_router
+from app.routes.audit_routes import (
+    log_router,
+    retention_router,
+    stats_router,
+    system_router,
+)
 from app.database.base import Base
 from app.database.connection import sync_engine, async_engine
-from app.services.retention_service import retention_service
+from app.services.retention_service import retention_scheduler
+from app.services.statistics_service import statistics_scheduler
 from app.utils.logger import logger
 
 # Importar modelos para que SQLAlchemy los registre
-from app.models import AuditLog, MicroserviceToken  # noqa: F401
+from app.models import AuditLog, MicroserviceToken, RetentionConfig, ServiceStatistics  # noqa: F401
 
 
 # ── Lifecycle Events ──────────────────────────────────────────────────────────
@@ -43,13 +49,15 @@ async def lifespan(app: FastAPI):
                 extra={"error": str(e)},
             )
 
-    # Iniciar scheduler de retención automática (TTL)
-    await retention_service.start()
+    # Iniciar schedulers en background
+    await retention_scheduler.start()
+    await statistics_scheduler.start()
 
     yield
 
-    # Shutdown — detener scheduler y cerrar pool async
-    await retention_service.stop()
+    # Shutdown — detener schedulers y cerrar pool async
+    await retention_scheduler.stop()
+    await statistics_scheduler.stop()
     await async_engine.dispose()
     logger.info("ms-auditoria shutting down")
 
@@ -61,15 +69,15 @@ app = FastAPI(
     description=(
         "Microservicio #19 del ERP Universitario.\n\n"
         "Responsable de registrar, almacenar y consultar eventos de auditoría "
-        "generados por los 18 microservicios del sistema.\n\n"
+        "generados por los 18+ microservicios del sistema.\n\n"
         "**Funcionalidades principales:**\n"
-        "- Registro de eventos de auditoría (POST)\n"
-        "- Registro en batch para alto volumen (POST)\n"
-        "- Consulta con filtros avanzados y paginación (GET)\n"
-        "- Trazabilidad por X-Request-ID (GET)\n"
-        "- Historial de acciones por usuario (GET)\n"
-        "- Estadísticas y métricas (GET)\n"
-        "- Purga de logs antiguos (DELETE)\n"
+        "- Registro de eventos de auditoría individual y batch (POST → 202)\n"
+        "- Trazabilidad distribuida por Request ID (GET)\n"
+        "- Filtrado de logs por servicio y fechas (GET)\n"
+        "- Configuración de retención y rotación (GET/PATCH/POST)\n"
+        "- Estadísticas precalculadas por servicio y periodo (GET)\n"
+        "- Health check para orquestadores (GET)\n"
+        "- Auto-auditoría de todas las operaciones (AUD-RF-005)\n"
     ),
     version="1.0.0",
     docs_url="/docs",
@@ -79,10 +87,9 @@ app = FastAPI(
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
 
-# CORS — configurado por entorno (orígenes específicos)
+# CORS — configurado por entorno
 _origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 if settings.APP_ENV == "development":
-    # En desarrollo, permitir todos los orígenes para facilitar testing
     _origins = ["*"]
 
 app.add_middleware(
@@ -94,10 +101,10 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Response-Time-ms", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
 )
 
-# Rate Limiting — protección contra abuso de requests
+# Rate Limiting
 app.add_middleware(RateLimitMiddleware)
 
-# Request-ID para trazabilidad entre microservicios
+# Request-ID para trazabilidad (formato AUD-{ts}-{random})
 app.add_middleware(RequestIDMiddleware)
 
 # ── Exception Handlers ─────────────────────────────────────────────────────────
@@ -106,10 +113,13 @@ register_exception_handlers(app)
 
 # ── Rutas ──────────────────────────────────────────────────────────────────────
 
-app.include_router(audit_router)
+app.include_router(log_router)
+app.include_router(retention_router)
+app.include_router(stats_router)
+app.include_router(system_router)
 
 
-# ── Root Endpoint ──────────────────────────────────────────────────────────────
+# ── Root Endpoint (12. /) ──────────────────────────────────────────────────────
 
 @app.get("/", tags=["Root"])
 async def root():
@@ -119,5 +129,5 @@ async def root():
         "version": "1.0.0",
         "descripcion": "Microservicio de Auditoría y Logging del ERP Universitario",
         "docs": "/docs",
-        "health": "/api/v1/audit/health",
+        "health": "/api/v1/health",
     }

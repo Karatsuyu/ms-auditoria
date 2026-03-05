@@ -2,22 +2,19 @@
 # ms-auditoria | services/audit_service.py
 # =============================================================================
 # Servicio principal de lógica de negocio para auditoría (ASYNC).
-# Orquesta la creación, consulta y gestión de logs de auditoría.
+# Orquesta la recepción, almacenamiento en background y consulta de logs.
 # =============================================================================
 
-import math
-import uuid
+import asyncio
 from typing import Optional, List
 from datetime import datetime
-from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database.session import AsyncSessionLocal
 from app.models.audit_log import AuditLog
-from app.schemas.audit_schema import AuditLogCreate, AuditLogResponse, AuditLogFilter
-from app.schemas.response_schema import PaginatedResponse, DataResponse
+from app.schemas.audit_schema import LogCreate
 from app.repositories.audit_repository import AuditRepository
-from app.core.config import settings
 from app.utils.logger import logger
 
 
@@ -28,164 +25,126 @@ class AuditService:
         self.db = db
         self.repo = AuditRepository(db)
 
-    # ── Crear log de auditoría ─────────────────────────────────────────────
+    # ── Background: persistir un log ───────────────────────────────────────
 
-    async def create_log(self, data: AuditLogCreate) -> AuditLogResponse:
+    @staticmethod
+    async def _persist_log_background(data: LogCreate) -> None:
         """
-        Crea un nuevo registro de auditoría.
-        Mapea del schema de entrada al modelo ORM.
+        Persiste un log en background con su propia sesión de BD.
+        Los errores se loguean pero NO propagan (el 202 ya fue enviado).
         """
-        audit_log = AuditLog(
-            request_id=data.request_id or str(uuid.uuid4()),
-            servicio=data.nombre_microservicio,
-            endpoint=data.endpoint,
-            metodo=data.metodo_http,
-            codigo_respuesta=data.codigo_respuesta,
-            duracion_ms=data.duracion_ms,
-            usuario_id=data.usuario_id,
-            detalle=data.detalle,
-            ip_origen=data.ip_origen,
-            timestamp_evento=data.timestamp,
-        )
-
-        saved = await self.repo.save(audit_log)
-        await self.db.commit()
-
-        logger.info(
-            "audit_log_created",
-            extra={
-                "audit_id": str(saved.id),
-                "servicio": saved.servicio,
-                "endpoint": saved.endpoint,
-            },
-        )
-
-        return AuditLogResponse.model_validate(saved)
-
-    # ── Crear logs en batch ────────────────────────────────────────────────
-
-    async def create_logs_batch(self, logs: List[AuditLogCreate]) -> List[AuditLogResponse]:
-        """Crea múltiples registros de auditoría en una sola transacción."""
-        audit_logs = [
-            AuditLog(
-                request_id=data.request_id or str(uuid.uuid4()),
-                servicio=data.nombre_microservicio,
-                endpoint=data.endpoint,
-                metodo=data.metodo_http,
-                codigo_respuesta=data.codigo_respuesta,
-                duracion_ms=data.duracion_ms,
-                usuario_id=data.usuario_id,
-                detalle=data.detalle,
-                ip_origen=data.ip_origen,
-                timestamp_evento=data.timestamp,
+        try:
+            async with AsyncSessionLocal() as session:
+                log = AuditLog(
+                    request_id=data.request_id or "",
+                    fecha_hora=data.timestamp,
+                    microservicio=data.service_name,
+                    funcionalidad=data.functionality,
+                    metodo=data.method,
+                    codigo_respuesta=data.response_code,
+                    duracion_ms=data.duration_ms,
+                    usuario_id=data.user_id,
+                    detalle=data.detail,
+                )
+                session.add(log)
+                await session.commit()
+        except Exception as e:
+            logger.error(
+                "log_persist_error",
+                extra={"error": str(e), "service_name": data.service_name},
             )
-            for data in logs
-        ]
 
-        saved_logs = await self.repo.save_batch(audit_logs)
-        await self.db.commit()
+    @staticmethod
+    async def _persist_batch_background(logs: List[LogCreate]) -> None:
+        """Persiste múltiples logs en background."""
+        try:
+            async with AsyncSessionLocal() as session:
+                orm_logs = [
+                    AuditLog(
+                        request_id=data.request_id or "",
+                        fecha_hora=data.timestamp,
+                        microservicio=data.service_name,
+                        funcionalidad=data.functionality,
+                        metodo=data.method,
+                        codigo_respuesta=data.response_code,
+                        duracion_ms=data.duration_ms,
+                        usuario_id=data.user_id,
+                        detalle=data.detail,
+                    )
+                    for data in logs
+                ]
+                session.add_all(orm_logs)
+                await session.commit()
+                logger.info("batch_persisted", extra={"count": len(orm_logs)})
+        except Exception as e:
+            logger.error(
+                "batch_persist_error",
+                extra={"error": str(e), "count": len(logs)},
+            )
 
-        logger.info("audit_batch_created", extra={"count": len(saved_logs)})
+    def enqueue_log(self, data: LogCreate) -> None:
+        """Despacha la persistencia de un log como tarea asíncrona."""
+        try:
+            asyncio.create_task(self._persist_log_background(data))
+        except RuntimeError:
+            logger.warning("enqueue_log_no_event_loop")
 
-        return [AuditLogResponse.model_validate(log) for log in saved_logs]
+    def enqueue_batch(self, valid_logs: List[LogCreate]) -> None:
+        """Despacha la persistencia de un batch como tarea asíncrona."""
+        if not valid_logs:
+            return
+        try:
+            asyncio.create_task(self._persist_batch_background(valid_logs))
+        except RuntimeError:
+            logger.warning("enqueue_batch_no_event_loop")
 
-    # ── Obtener log por ID ─────────────────────────────────────────────────
+    # ── Consulta: traza por request_id ─────────────────────────────────────
 
-    async def get_by_id(self, audit_id: UUID) -> Optional[AuditLogResponse]:
-        """Obtiene un registro de auditoría por su ID."""
-        log = await self.repo.find_by_id(audit_id)
-        if not log:
-            return None
-        return AuditLogResponse.model_validate(log)
+    async def get_trace(
+        self,
+        request_id: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[List[AuditLog], int]:
+        """Busca registros por request_id (traza distribuida)."""
+        return await self.repo.find_by_request_id(
+            request_id=request_id,
+            page=page,
+            page_size=page_size,
+        )
 
-    # ── Listar logs con filtros y paginación ───────────────────────────────
+    # ── Consulta: filtrar logs ─────────────────────────────────────────────
 
-    async def get_logs(
+    async def get_filtered_logs(
         self,
         page: int = 1,
         page_size: int = 20,
-        filters: Optional[AuditLogFilter] = None,
-    ) -> PaginatedResponse[AuditLogResponse]:
-        """Obtiene registros paginados con filtros opcionales."""
-        # Validar paginación
-        page_size = min(page_size, settings.MAX_PAGE_SIZE)
-        page = max(page, 1)
-
-        # Extraer filtros
-        kwargs = {}
-        if filters:
-            if filters.servicio:
-                kwargs["servicio"] = filters.servicio
-            if filters.metodo_http:
-                kwargs["metodo"] = filters.metodo_http
-            if filters.codigo_respuesta:
-                kwargs["codigo_respuesta"] = filters.codigo_respuesta
-            if filters.usuario_id:
-                kwargs["usuario_id"] = filters.usuario_id
-            if filters.fecha_inicio:
-                kwargs["fecha_inicio"] = filters.fecha_inicio
-            if filters.fecha_fin:
-                kwargs["fecha_fin"] = filters.fecha_fin
-            if filters.request_id:
-                kwargs["request_id"] = filters.request_id
-            if hasattr(filters, "search_text") and filters.search_text:
-                kwargs["search_text"] = filters.search_text
-
-        results, total = await self.repo.find_all(
+        service_name: Optional[str] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> tuple[List[AuditLog], int]:
+        """Busca registros con filtros y paginación."""
+        return await self.repo.find_filtered(
             page=page,
             page_size=page_size,
-            **kwargs,
+            service_name=service_name,
+            date_from=date_from,
+            date_to=date_to,
         )
 
-        total_pages = math.ceil(total / page_size) if total > 0 else 0
+    # ── Consulta: historial de rotaciones ──────────────────────────────────
 
-        return PaginatedResponse(
-            data=[AuditLogResponse.model_validate(r) for r in results],
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
-        )
-
-    # ── Buscar por Request-ID ──────────────────────────────────────────────
-
-    async def get_by_request_id(self, request_id: str) -> List[AuditLogResponse]:
-        """Obtiene todos los registros asociados a un X-Request-ID."""
-        logs = await self.repo.find_by_request_id(request_id)
-        return [AuditLogResponse.model_validate(log) for log in logs]
-
-    # ── Buscar por usuario ─────────────────────────────────────────────────
-
-    async def get_by_usuario(
+    async def get_rotation_history(
         self,
-        usuario_id: UUID,
         page: int = 1,
         page_size: int = 20,
-    ) -> PaginatedResponse[AuditLogResponse]:
-        """Obtiene registros de un usuario específico paginados."""
-        page_size = min(page_size, settings.MAX_PAGE_SIZE)
-
-        results, total = await self.repo.find_by_usuario(
-            usuario_id=usuario_id,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> tuple[List[AuditLog], int]:
+        """Busca registros de auto-auditoría de rotaciones."""
+        return await self.repo.find_rotation_history(
             page=page,
             page_size=page_size,
+            date_from=date_from,
+            date_to=date_to,
         )
-
-        total_pages = math.ceil(total / page_size) if total > 0 else 0
-
-        return PaginatedResponse(
-            data=[AuditLogResponse.model_validate(r) for r in results],
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
-        )
-
-    # ── Purgar logs antiguos ───────────────────────────────────────────────
-
-    async def purge_old_logs(self, before_date: datetime) -> int:
-        """Elimina registros anteriores a una fecha."""
-        count = await self.repo.delete_before(before_date)
-        await self.db.commit()
-        logger.warning("audit_logs_purged", extra={"deleted_count": count, "before": str(before_date)})
-        return count

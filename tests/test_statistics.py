@@ -1,100 +1,74 @@
 # =============================================================================
 # ms-auditoria | tests/test_statistics.py
 # =============================================================================
-# Tests unitarios detallados para el servicio de estadísticas.
+# Tests para el servicio y endpoints de estadísticas (AUD-RF-014..016).
 # =============================================================================
 
+import time
 from datetime import datetime, timezone
 
 
-class TestStatisticsDetailed:
-    """Tests detallados para el endpoint de estadísticas."""
+class TestStatisticsEndpoints:
+    """Tests para los endpoints de estadísticas precalculadas."""
 
-    def test_stats_logs_por_servicio(self, client):
-        """Verifica el conteo correcto por servicio."""
-        services = ["ms-matricula"] * 3 + ["ms-finanzas"] * 2 + ["ms-academico"]
-        for svc in services:
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": svc,
-                "endpoint": "/test",
-                "metodo_http": "GET",
-                "codigo_respuesta": 200,
-                "duracion_ms": 100,
-            })
+    def test_general_stats_empty_returns_zero_records(self, client, auth_headers):
+        """Sin datos semilla, las estadísticas devuelven 0 registros."""
+        data = client.get(
+            "/api/v1/stats?period=diario&page=1&page_size=20",
+            headers=auth_headers,
+        ).json()
+        assert data["success"] is True
+        assert data["data"]["total_records"] == 0
+        assert data["data"]["records"] == []
 
-        response = client.get("/api/v1/audit/stats")
-        data = response.json()["data"]
+    def test_general_stats_with_date_filter(self, client, auth_headers):
+        """Filtro por fecha funciona correctamente."""
+        response = client.get(
+            "/api/v1/stats?period=diario&date=2026-02-15&page=1&page_size=20",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
 
-        assert data["total_registros"] == 6
+    def test_service_stats_nonexistent_service(self, client, auth_headers):
+        """Servicio que no existe retorna 0 registros, no 404."""
+        data = client.get(
+            "/api/v1/stats/ms-nonexistent?period=diario&page=1&page_size=20",
+            headers=auth_headers,
+        ).json()
+        assert data["success"] is True
+        assert data["data"]["total_records"] == 0
 
-        # logs_por_servicio debe estar ordenado por total desc
-        por_svc = data["logs_por_servicio"]
-        assert por_svc[0]["servicio"] == "ms-matricula"
-        assert por_svc[0]["total"] == 3
-        assert por_svc[1]["servicio"] == "ms-finanzas"
-        assert por_svc[1]["total"] == 2
+    def test_general_stats_all_periods(self, client, auth_headers):
+        """Los tres periodos válidos retornan 200."""
+        for period in ["diario", "semanal", "mensual"]:
+            response = client.get(
+                f"/api/v1/stats?period={period}&page=1&page_size=20",
+                headers=auth_headers,
+            )
+            assert response.status_code == 200
 
-    def test_stats_error_rate(self, client):
-        """Verifica cálculo de tasa de errores."""
-        # 3 exitosos + 2 errores para ms-test
-        for code in [200, 200, 200, 500, 404]:
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": "/test",
-                "metodo_http": "GET",
-                "codigo_respuesta": code,
-                "duracion_ms": 100,
-            })
+    def test_service_stats_pagination(self, client, auth_headers):
+        """Paginación funciona en estadísticas por servicio."""
+        response = client.get(
+            "/api/v1/stats/ms-test?period=diario&page=1&page_size=5",
+            headers=auth_headers,
+        )
+        data = response.json()
+        assert data["data"]["page"] == 1
+        assert data["data"]["page_size"] == 5
 
-        response = client.get("/api/v1/audit/stats")
-        data = response.json()["data"]
+    def test_general_stats_invalid_page_size(self, client, auth_headers):
+        """page_size > 100 debe rechazarse."""
+        response = client.get(
+            "/api/v1/stats?period=diario&page=1&page_size=200",
+            headers=auth_headers,
+        )
+        assert response.status_code == 422
 
-        tasa = data["tasa_errores_por_servicio"]
-        ms_test = next(t for t in tasa if t["servicio"] == "ms-test")
-        assert ms_test["total"] == 5
-        assert ms_test["errors"] == 2
-        assert ms_test["error_rate"] == 40.0  # 2/5 * 100
-
-    def test_stats_duration_average(self, client):
-        """Verifica promedio de duración."""
-        durations = [100, 200, 300]
-        for d in durations:
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": "/test",
-                "metodo_http": "GET",
-                "codigo_respuesta": 200,
-                "duracion_ms": d,
-            })
-
-        response = client.get("/api/v1/audit/stats")
-        data = response.json()["data"]
-
-        dur = data["duracion_promedio_por_servicio"]
-        ms_test = next(d for d in dur if d["servicio"] == "ms-test")
-        assert ms_test["avg_duration_ms"] == 200.0  # (100+200+300)/3
-        assert ms_test["total_requests"] == 3
-
-    def test_stats_logs_por_codigo(self, client):
-        """Verifica conteo por código de respuesta."""
-        for code in [200, 200, 201, 404, 500]:
-            client.post("/api/v1/audit/log", json={
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "nombre_microservicio": "ms-test",
-                "endpoint": "/test",
-                "metodo_http": "GET",
-                "codigo_respuesta": code,
-                "duracion_ms": 50,
-            })
-
-        response = client.get("/api/v1/audit/stats")
-        data = response.json()["data"]
-
-        por_codigo = {c["codigo_respuesta"]: c["total"] for c in data["logs_por_codigo_respuesta"]}
-        assert por_codigo[200] == 2
-        assert por_codigo[201] == 1
-        assert por_codigo[404] == 1
-        assert por_codigo[500] == 1
+    def test_general_stats_invalid_page(self, client, auth_headers):
+        """page < 1 debe rechazarse."""
+        response = client.get(
+            "/api/v1/stats?period=diario&page=0&page_size=20",
+            headers=auth_headers,
+        )
+        assert response.status_code == 422

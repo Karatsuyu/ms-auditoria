@@ -1,14 +1,13 @@
 # =============================================================================
 # ms-auditoria | core/auth.py
 # =============================================================================
-# Autenticación inter-servicio basada en API Keys.
+# Autenticación inter-servicio basada en tokens de aplicación.
 # Cada microservicio del ERP tiene un token registrado en la tabla
-# microservice_tokens. Este módulo valida ese token en cada request de
-# escritura (POST, DELETE) para garantizar que solo servicios autorizados
-# puedan registrar o purgar logs de auditoría.
+# microservice_tokens. Este módulo valida ese token recibido en el header
+# X-App-Token para los endpoints de ingesta (POST /logs, POST /logs/batch).
 #
-# Los endpoints de lectura (GET) no requieren API Key para permitir
-# consultas desde dashboards y herramientas de monitoreo.
+# Los endpoints de consulta (GET) usan Bearer token + sesión de usuario
+# validada por ms-autenticación y ms-roles (gestionado en dependencies.py).
 # =============================================================================
 
 import hashlib
@@ -24,34 +23,34 @@ from app.models.microservice_token import MicroserviceToken
 from app.utils.logger import logger
 
 
-def hash_api_key(api_key: str) -> str:
-    """Genera el hash SHA-256 de una API key para comparar con la BD."""
-    return hashlib.sha256(api_key.encode()).hexdigest()
+def hash_token(token: str) -> str:
+    """Genera el hash SHA-256 de un token para comparar con la BD."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
-async def verify_api_key(
-    api_key: Optional[str] = Header(None, alias="X-API-Key"),
+async def verify_app_token(
+    x_app_token: Optional[str] = Header(None, alias="X-App-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[MicroserviceToken]:
     """
-    Dependencia que valida el API Key del microservicio emisor.
-    Si APP_ENV == 'development' y no hay key, permite el paso (modo dev).
-    En producción, el API Key es OBLIGATORIO.
+    Dependencia que valida el X-App-Token del microservicio emisor.
+    Si APP_ENV == 'development' y no hay token, permite el paso (modo dev).
+    En producción, el X-App-Token es OBLIGATORIO.
     """
-    # En desarrollo/testing, si no se envía API key, permitir acceso
-    if not api_key:
+    # En desarrollo/testing, si no se envía token, permitir acceso
+    if not x_app_token:
         if settings.APP_ENV in ("development", "testing"):
-            logger.debug("api_key_skipped_dev_mode")
+            logger.debug("app_token_skipped_dev_mode")
             return None
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API Key requerida. Envíe el header X-API-Key.",
+            detail="Token de aplicación inválido o no proporcionado.",
         )
 
     # Buscar token en la BD
-    key_hash = hash_api_key(api_key)
+    token_hash = hash_token(x_app_token)
     stmt = select(MicroserviceToken).where(
-        MicroserviceToken.token_hash == key_hash,
+        MicroserviceToken.token_hash == token_hash,
         MicroserviceToken.activo == True,  # noqa: E712
     )
     result = await db.execute(stmt)
@@ -59,16 +58,16 @@ async def verify_api_key(
 
     if not token_record:
         logger.warning(
-            "invalid_api_key",
-            extra={"key_prefix": api_key[:8] + "..." if len(api_key) > 8 else "***"},
+            "invalid_app_token",
+            extra={"token_prefix": x_app_token[:8] + "..." if len(x_app_token) > 8 else "***"},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API Key inválida o microservicio desactivado.",
+            detail="Token de aplicación inválido o no proporcionado.",
         )
 
     logger.info(
-        "api_key_validated",
+        "app_token_validated",
         extra={"microservicio": token_record.nombre_microservicio},
     )
     return token_record

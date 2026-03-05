@@ -46,8 +46,12 @@ class Settings(BaseSettings):
         description="Clave AES-256 en hexadecimal (64 caracteres)",
     )
     API_KEY_HEADER: str = Field(
-        default="X-API-Key",
+        default="X-App-Token",
         description="Nombre del header para autenticación inter-servicio",
+    )
+    AUD_APP_TOKEN: str = Field(
+        default="",
+        description="Token de identidad de ms-auditoria para llamadas salientes a ms-autenticacion y ms-roles",
     )
 
     # ── CORS ───────────────────────────────────────────────────────────────
@@ -78,12 +82,12 @@ class Settings(BaseSettings):
 
     # ── URLs de microservicios externos ────────────────────────────────────
     MS_AUTENTICACION_URL: str = Field(
-        default="http://localhost:8001/api/v1/auth",
-        description="URL base del ms-autenticación",
+        default="http://localhost:8001/api/v1",
+        description="URL base del ms-autenticación (sin trailing slash)",
     )
     MS_ROLES_URL: str = Field(
-        default="http://localhost:8002/api/v1/roles",
-        description="URL base del ms-roles-permisos",
+        default="http://localhost:8002/api/v1",
+        description="URL base del ms-roles-permisos (sin trailing slash)",
     )
 
     # ── Servidor ───────────────────────────────────────────────────────────

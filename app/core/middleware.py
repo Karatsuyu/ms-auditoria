@@ -3,12 +3,14 @@
 # =============================================================================
 # Middleware personalizado para:
 # - Inyectar/propagar X-Request-ID en cada request (trazabilidad)
+#   Formato propio: AUD-{timestamp_unix_ms}-{6char_random}
 # - Medir duración de cada request
 # - Logging estructurado de cada petición
 # =============================================================================
 
-import uuid
 import time
+import string
+import random
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
@@ -16,16 +18,27 @@ from fastapi import Request, Response
 from app.utils.logger import logger
 
 
+def generate_request_id() -> str:
+    """
+    Genera un Request ID con formato AUD-{timestamp_unix_ms}-{6char}.
+    Máximo 36 caracteres según especificación.
+    """
+    ts = int(time.time() * 1000)
+    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+    return f"AUD-{ts}-{suffix}"
+
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     """
-    Middleware que garantiza que cada request tenga un X-Request-ID único.
-    Si el cliente envía uno, se propaga; si no, se genera automáticamente.
+    Middleware que garantiza que cada request tenga un X-Request-ID.
+    Si el cliente envía uno, se reutiliza (AUD-RF-003); si no, se genera
+    con formato AUD-{timestamp_unix_ms}-{6char}.
     También mide la duración del request en milisegundos.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
         # ── Obtener o generar Request-ID ──────────────────────────────────
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        request_id = request.headers.get("X-Request-ID") or generate_request_id()
 
         # Inyectar en el state del request para uso posterior
         request.state.request_id = request_id
