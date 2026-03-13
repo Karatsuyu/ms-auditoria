@@ -299,8 +299,9 @@ classDiagram
     class RequestIDMiddleware {
         <<middleware>>
         +dispatch(request, call_next) Response
-        -generate_request_id() str "AUD-{ts_ms}-{6char}"
+        -generate_request_id() str
     }
+    note for RequestIDMiddleware "Formato ID: AUD-ts_ms-6char"
 
     class RateLimitMiddleware {
         <<middleware>>
