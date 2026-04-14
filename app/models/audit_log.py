@@ -7,6 +7,7 @@
 # =============================================================================
 
 from datetime import datetime, timezone
+import uuid
 
 from sqlalchemy import (
     Column,
@@ -20,7 +21,42 @@ from sqlalchemy import (
     text,
 )
 
+from sqlalchemy.types import TypeDecorator, CHAR
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+
 from app.database.base import Base
+
+
+class GUID(TypeDecorator):
+    """UUID portable.
+
+    Compatibilidad retroactiva: algunas migraciones Alembic antiguas importan
+    `GUID` desde este módulo.
+    """
+
+    cache_ok = True
+    impl = CHAR
+
+    def __init__(self, length: int = 36, **kwargs):
+        super().__init__(**kwargs)
+        self.length = length
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(CHAR(self.length))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
 
 
 class AuditLog(Base):
