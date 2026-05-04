@@ -1,5 +1,5 @@
 # =============================================================================
-# ms-auditoria | services/statistics_service.py
+# ms-auditoria | models/services/statistics_service.py
 # =============================================================================
 # Servicio de estadísticas precalculadas (AUD-RF-014, AUD-RF-015, AUD-RF-016).
 # Consulta la tabla aud_estadisticas_servicio en lugar de agregar on-the-fly.
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import AsyncSessionLocal
 from app.models.audit_log import AuditLog
 from app.models.service_statistics import ServiceStatistics
-from app.repositories.statistics_repository import StatisticsRepository
+from app.models.repositories.statistics_repository import StatisticsRepository
 from app.utils.logger import logger
 
 

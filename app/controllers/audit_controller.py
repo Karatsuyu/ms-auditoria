@@ -1,7 +1,7 @@
 # =============================================================================
-# ms-auditoria | routes/audit_routes.py
+# ms-auditoria | controllers/audit_controller.py
 # =============================================================================
-# Rutas HTTP ASYNC del microservicio de auditoría.
+# Controladores HTTP ASYNC del microservicio de auditoría (Capa Controller MVC).
 # 12 endpoints definidos según AUD-especificacion-api-rest.md:
 #
 #  Eventos de log:
@@ -36,7 +36,7 @@ from sqlalchemy import text
 
 from app.core.dependencies import get_db, require_permission
 from app.core.auth import verify_app_token
-from app.schemas.audit_schema import (
+from app.views.audit_schema import (
     LogCreate,
     LogBatchRequest,
     LogRecord,
@@ -47,22 +47,22 @@ from app.schemas.audit_schema import (
     RotationHistoryRecord,
     RotationHistoryData,
 )
-from app.schemas.retention_schema import (
+from app.views.retention_schema import (
     RetentionConfigData,
     RetentionUpdateRequest,
     RetentionConfigUpdatedData,
     RotationResultData,
 )
-from app.schemas.statistics_schema import (
+from app.views.statistics_schema import (
     StatsRecord,
     GeneralStatsData,
     ServiceStatsData,
 )
-from app.schemas.response_schema import APIResponse, HealthResponse
-from app.services.audit_service import AuditService
-from app.services.retention_service import RetentionService
-from app.services.statistics_service import StatisticsService
-from app.services.self_audit_service import fire_self_audit
+from app.views.response_schema import APIResponse, HealthResponse
+from app.models.services.audit_service import AuditService
+from app.models.services.retention_service import RetentionService
+from app.models.services.statistics_service import StatisticsService
+from app.models.services.self_audit_service import fire_self_audit
 
 # ── Routers ────────────────────────────────────────────────────────────────────
 

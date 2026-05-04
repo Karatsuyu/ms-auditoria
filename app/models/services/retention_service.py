@@ -1,5 +1,5 @@
 # =============================================================================
-# ms-auditoria | services/retention_service.py
+# ms-auditoria | models/services/retention_service.py
 # =============================================================================
 # Servicio de retención de logs.
 # - Consulta/actualiza configuración desde aud_configuracion_retencion.
@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.session import AsyncSessionLocal
 from app.models.audit_log import AuditLog
 from app.models.retention_config import RetentionConfig
-from app.repositories.retention_repository import RetentionRepository
-from app.repositories.audit_repository import AuditRepository
+from app.models.repositories.retention_repository import RetentionRepository
+from app.models.repositories.audit_repository import AuditRepository
 from app.core.config import settings
 from app.utils.logger import logger
 
@@ -182,7 +182,7 @@ class RetentionScheduler:
             service = RetentionService(session)
             result = await service.rotate()
             # Auto-auditoría de la rotación automática
-            from app.services.self_audit_service import fire_self_audit
+            from app.models.services.self_audit_service import fire_self_audit
             from app.core.middleware import generate_request_id
             fire_self_audit(
                 request_id=generate_request_id(),

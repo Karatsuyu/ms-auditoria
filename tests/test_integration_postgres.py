@@ -33,13 +33,13 @@ from app.models.audit_log import AuditLog
 from app.models.retention_config import RetentionConfig
 from app.models.service_statistics import ServiceStatistics
 from app.models.microservice_token import MicroserviceToken  # noqa: F401
-from app.repositories.audit_repository import AuditRepository
-from app.repositories.retention_repository import RetentionRepository
-from app.repositories.statistics_repository import StatisticsRepository
-from app.services.audit_service import AuditService
-from app.services.retention_service import RetentionService
-from app.services.statistics_service import StatisticsService
-from app.schemas.audit_schema import LogCreate
+from app.models.repositories.audit_repository import AuditRepository
+from app.models.repositories.retention_repository import RetentionRepository
+from app.models.repositories.statistics_repository import StatisticsRepository
+from app.models.services.audit_service import AuditService
+from app.models.services.retention_service import RetentionService
+from app.models.services.statistics_service import StatisticsService
+from app.views.audit_schema import LogCreate
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.core.middleware import RequestIDMiddleware
 from app.core.rate_limiter import RateLimitMiddleware
 from app.core.exception_handlers import register_exception_handlers
-from app.routes.audit_routes import (
+from app.controllers.audit_controller import (
     log_router,
     retention_router,
     stats_router,
@@ -22,8 +22,8 @@ from app.routes.audit_routes import (
 )
 from app.database.base import Base
 from app.database.connection import sync_engine, async_engine
-from app.services.retention_service import retention_scheduler
-from app.services.statistics_service import statistics_scheduler
+from app.models.services.retention_service import retention_scheduler
+from app.models.services.statistics_service import statistics_scheduler
 from app.utils.logger import logger
 
 # Importar modelos para que SQLAlchemy los registre

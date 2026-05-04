@@ -1,5 +1,5 @@
 # =============================================================================
-# ms-auditoria | services/audit_service.py
+# ms-auditoria | models/services/audit_service.py
 # =============================================================================
 # Servicio principal de lógica de negocio para auditoría (ASYNC).
 # Orquesta la recepción, almacenamiento en background y consulta de logs.
@@ -13,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import AsyncSessionLocal
 from app.models.audit_log import AuditLog
-from app.schemas.audit_schema import LogCreate
-from app.repositories.audit_repository import AuditRepository
+from app.views.audit_schema import LogCreate
+from app.models.repositories.audit_repository import AuditRepository
 from app.utils.logger import logger
 
 

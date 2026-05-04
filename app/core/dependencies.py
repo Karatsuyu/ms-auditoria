@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import AsyncSessionLocal
 from app.database.unit_of_work import UnitOfWork
-from app.services.auth_service import (
+from app.models.services.auth_service import (
     validate_session,
     check_permission,
     ExternalServiceUnavailable,
